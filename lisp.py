@@ -158,9 +158,7 @@ def is_self_evaluating(exp):
     try:
         # Hijack python evaluation
         result = eval(str(exp))
-        if isinstance(result, Number):
-            return True
-        elif isinstance(result, ByteString):
+        if isinstance(result, Number) or isinstance(result, ByteString):
             return True
     except (ValueError, SyntaxError, NameError, TypeError):
         pass
