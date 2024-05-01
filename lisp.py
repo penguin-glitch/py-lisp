@@ -2,19 +2,15 @@
 
 from typing import ByteString
 from numbers import Number
+import datetime
 
 # TO DO
 # Exception handling
 # Primitives (expose the python functions to lisp)
+# CURRENT ISSUE: We should only evaluate the part of the if statement that is being run, otherwise if theres a function there we get bad times
 
-# Lisp Exceptions
-
-class NotEvaluableError(Exception):
+class LispError(Exception):
     pass
-
-class LispSyntaxError(Exception):
-    pass
-
 
 # Procedures
 
@@ -22,6 +18,11 @@ class LispSyntaxError(Exception):
 def arithmetic(func):
     """ Wrapper for arithmetic procedures """
     def wrapper(args):
+
+        processed_args = []
+        for arg in args:
+            processed_args.append(eval_lisp(arg))
+        args = processed_args
 
         # If there's a float number involved, convert all arguments to float. Otherwise use integers
         float_arithmetic = False
@@ -60,7 +61,10 @@ def divide(x, arg):
 # Comparison procedures
 def comparison(func):
     def wrapper(args):
-        return func(args[0], args[1])
+        processed_args = []
+        for arg in args:
+            processed_args.append(eval_lisp(arg))
+        return func(processed_args[0], processed_args[1])
     return wrapper
 
 @comparison
@@ -98,11 +102,25 @@ def _not(cond):
 # Other procedures
 def create_procedure(base_args: list, lisp_func: str) -> callable:
     """ Returns a new function to be associated with a lisp procedure """
-    def new_procedure(args):
-        args = list(zip(base_args, args))
+
+    # DO NOT EXPAND
+    def process_args(lisp_func, args):
         processed_func = lisp_func
         for arg in args:
-            processed_func = processed_func.replace(arg[0], str(arg[1]))
+            # This is horrendous but tired brain can't think of a better way to do it
+            # Essentially we just want to replace the variable when it's on its own
+            # Not when its a part of a larger term
+            # Collapse this function for your own sanity
+            processed_func = processed_func.replace(' ' + arg[0] + ' ', ' ' + str(arg[1]) + ' ')
+            processed_func = processed_func.replace('(' + arg[0] + ' ', '(' + str(arg[1]) + ' ')
+            processed_func = processed_func.replace(' ' + arg[0] + ')', ' ' + str(arg[1]) + ')')
+            processed_func = processed_func.replace('(' + arg[0] + ')', '(' + str(arg[1]) + ')')
+
+        return processed_func
+
+    def new_procedure(args):
+        args = list(zip(base_args, args))
+        processed_func = process_args(lisp_func, args)
         return eval_lisp(processed_func)
     return new_procedure
         
@@ -124,7 +142,7 @@ def define(exp):
         return 
     
 def _if(args):
-    predicate = args[0]
+    predicate = eval_lisp(args[0])
     consequent = args[1]
     alternative = args[2]
 
@@ -217,7 +235,10 @@ def process(text):
                 if i != len(text) - 1:
                     continue
             expressions.append(exp)
-            text = text.replace(exp, '', 1)
+            try:
+                text = text.replace(exp, '', 1)
+            except TypeError:
+                raise LispError("Bracket not closed")
             break
 
     return expressions
@@ -234,15 +255,12 @@ def apply(proc):
     if key in procedures.keys():
         # This is an actual procedure
         args = proc[1:]
-        processed_args = []
-        for arg in args:
-            processed_args.append(eval_lisp(arg))
         
-        return procedures[key](processed_args)
+        return procedures[key](args)
     else:
         # This is another expression in a bracket
         if len(proc) > 1:
-            raise NotEvaluableError
+            raise LispError("Not evaluable: " + str(proc))
         else:
             return eval_lisp(proc[0])
 
@@ -256,14 +274,23 @@ def eval_lisp(component):
     elif is_variable(component):
         return symbols[component]
     elif is_procedure(component):
+        #print(component)
         return apply(component)
     elif is_self_evaluating(component):
         return eval(str(component))
+
 
 
 # Run the interpreter
     
 while True:
     expression = input("> ")
-    for component in process(expression):
-        print(eval_lisp(component))
+
+    if expression == "quit":
+        break
+
+    try:
+        for component in process(expression):
+            print(eval_lisp(component))
+    except (LispError, RecursionError) as e:
+        print(e)
